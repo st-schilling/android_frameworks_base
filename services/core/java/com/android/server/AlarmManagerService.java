@@ -4786,7 +4786,6 @@ class AlarmManagerService extends SystemService {
                                         Intent.EXTRA_ALARM_COUNT, alarm.count),
                                 mDeliveryTracker, mHandler, null,
                                 allowWhileIdle ? mIdleOptions : getAlarmOperationBundle(alarm));
-                                allowWhileIdle ? mIdleOptions : null);
                         mHandler.sendMessageDelayed(
                                 mHandler.obtainMessage(AlarmHandler.PENDINGINTENT_TIMEOUT,
                                          alarm.operation), mConstants.LISTENER_TIMEOUT * 2);
