@@ -16,7 +16,6 @@
 
 package com.android.systemui.media;
 
-import android.annotation.UserIdInt;
 import android.app.PendingIntent;
 import android.content.ComponentName;
 import android.content.Context;
@@ -30,6 +29,8 @@ import android.os.Bundle;
 import android.service.media.MediaBrowserService;
 import android.text.TextUtils;
 import android.util.Log;
+
+import com.android.internal.annotations.VisibleForTesting;
 
 import java.util.List;
 
@@ -48,8 +49,6 @@ public class ResumeMediaBrowser {
     private final Context mContext;
     private final Callback mCallback;
     private MediaBrowserFactory mBrowserFactory;
-    @UserIdInt private final int mUserId;
-
     private MediaBrowser mMediaBrowser;
     private ComponentName mComponentName;
 
@@ -58,15 +57,13 @@ public class ResumeMediaBrowser {
      * @param context the context
      * @param callback used to report media items found
      * @param componentName Component name of the MediaBrowserService this browser will connect to
-     * @param userId ID of the current user
      */
     public ResumeMediaBrowser(Context context, Callback callback, ComponentName componentName,
-            MediaBrowserFactory browserFactory, @UserIdInt int userId) {
+            MediaBrowserFactory browserFactory) {
         mContext = context;
         mCallback = callback;
         mComponentName = componentName;
         mBrowserFactory = browserFactory;
-        mUserId = userId;
     }
 
     /**
@@ -96,17 +93,19 @@ public class ResumeMediaBrowser {
                 List<MediaBrowser.MediaItem> children) {
             if (children.size() == 0) {
                 Log.d(TAG, "No children found for " + mComponentName);
-                return;
-            }
-            // We ask apps to return a playable item as the first child when sending
-            // a request with EXTRA_RECENT; if they don't, no resume controls
-            MediaBrowser.MediaItem child = children.get(0);
-            MediaDescription desc = child.getDescription();
-            if (child.isPlayable() && mMediaBrowser != null) {
-                mCallback.addTrack(desc, mMediaBrowser.getServiceComponent(),
-                        ResumeMediaBrowser.this);
+                mCallback.onError();
             } else {
-                Log.d(TAG, "Child found but not playable for " + mComponentName);
+                // We ask apps to return a playable item as the first child when sending
+                // a request with EXTRA_RECENT; if they don't, no resume controls
+                MediaBrowser.MediaItem child = children.get(0);
+                MediaDescription desc = child.getDescription();
+                if (child.isPlayable() && mMediaBrowser != null) {
+                    mCallback.addTrack(desc, mMediaBrowser.getServiceComponent(),
+                            ResumeMediaBrowser.this);
+                } else {
+                    Log.d(TAG, "Child found but not playable for " + mComponentName);
+                    mCallback.onError();
+                }
             }
             disconnect();
         }
@@ -139,7 +138,7 @@ public class ResumeMediaBrowser {
             Log.d(TAG, "Service connected for " + mComponentName);
             if (mMediaBrowser != null && mMediaBrowser.isConnected()) {
                 String root = mMediaBrowser.getRoot();
-                if (!TextUtils.isEmpty(root)) {
+                if (!TextUtils.isEmpty(root) && mMediaBrowser != null) {
                     mCallback.onConnected();
                     mMediaBrowser.subscribe(root, mSubscriptionCallback);
                     return;
@@ -200,7 +199,7 @@ public class ResumeMediaBrowser {
                             return;
                         }
                         MediaSession.Token token = mMediaBrowser.getSessionToken();
-                        MediaController controller = new MediaController(mContext, token);
+                        MediaController controller = createMediaController(token);
                         controller.getTransportControls();
                         controller.getTransportControls().prepare();
                         controller.getTransportControls().play();
@@ -218,14 +217,6 @@ public class ResumeMediaBrowser {
                     }
                 }, rootHints);
         mMediaBrowser.connect();
-    }
-
-    /**
-     * Get the ID of the user associated with this broswer
-     * @return the user ID
-     */
-    public @UserIdInt int getUserId() {
-        return mUserId;
     }
 
     @VisibleForTesting
@@ -256,42 +247,19 @@ public class ResumeMediaBrowser {
 
     /**
      * Used to test if SystemUI is allowed to connect to the given component as a MediaBrowser.
-     * ResumeMediaBrowser.Callback#onError or ResumeMediaBrowser.Callback#onConnected will be called
-     * depending on whether it was successful.
+     * If it can connect, ResumeMediaBrowser.Callback#onConnected will be called. If valid media is
+     * found, then ResumeMediaBrowser.Callback#addTrack will also be called. This allows for more
+     * detailed logging if the service has issues. If it cannot connect, or cannot find valid media,
+     * then ResumeMediaBrowser.Callback#onError will be called.
      * ResumeMediaBrowser#disconnect should be called after this to ensure the connection is closed.
      */
     public void testConnection() {
         disconnect();
-        final MediaBrowser.ConnectionCallback connectionCallback =
-                new MediaBrowser.ConnectionCallback() {
-                    @Override
-                    public void onConnected() {
-                        Log.d(TAG, "connected");
-                        if (mMediaBrowser == null || !mMediaBrowser.isConnected()
-                                || TextUtils.isEmpty(mMediaBrowser.getRoot())) {
-                            mCallback.onError();
-                        } else {
-                            mCallback.onConnected();
-                        }
-                    }
-
-                    @Override
-                    public void onConnectionSuspended() {
-                        Log.d(TAG, "suspended");
-                        mCallback.onError();
-                    }
-
-                    @Override
-                    public void onConnectionFailed() {
-                        Log.d(TAG, "failed");
-                        mCallback.onError();
-                    }
-                };
         Bundle rootHints = new Bundle();
         rootHints.putBoolean(MediaBrowserService.BrowserRoot.EXTRA_RECENT, true);
-        mMediaBrowser =  mBrowserFactory.create(
+        mMediaBrowser = mBrowserFactory.create(
                 mComponentName,
-                connectionCallback,
+                mConnectionCallback,
                 rootHints);
         mMediaBrowser.connect();
     }
