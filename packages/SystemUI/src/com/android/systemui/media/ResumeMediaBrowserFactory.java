@@ -16,7 +16,6 @@
 
 package com.android.systemui.media;
 
-import android.annotation.UserIdInt;
 import android.content.ComponentName;
 import android.content.Context;
 
@@ -40,12 +39,10 @@ public class ResumeMediaBrowserFactory {
      *
      * @param callback will be called on connection or error, and addTrack when media item found
      * @param componentName component to browse
-     * @param userId ID of the current user
      * @return
      */
     public ResumeMediaBrowser create(ResumeMediaBrowser.Callback callback,
-            ComponentName componentName, @UserIdInt int userId) {
-        return new ResumeMediaBrowser(mContext, callback, componentName, mBrowserFactory,
-                userId);
+            ComponentName componentName) {
+        return new ResumeMediaBrowser(mContext, callback, componentName, mBrowserFactory);
     }
 }
